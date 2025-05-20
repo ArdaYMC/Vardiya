@@ -1,0 +1,27 @@
+# Proje dizininde .gitignore dosyası oluştur
+echo "
+# dependencies
+node_modules/
+dist/
+build/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs
+logs
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+" > .gitignore
