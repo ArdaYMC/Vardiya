@@ -3,9 +3,16 @@ import { IsEmail, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, Length, Ma
 import { UserRole } from '../../users/entities/user.entity';
 
 export class RegisterDto {
-  @ApiProperty({ description: 'Organizasyon ID', example: 1 })
+  @ApiProperty({ description: 'Organizasyon ID', example: 1, required: false })
+  @IsOptional()
   @IsNumber({}, { message: 'Organizasyon ID sayı olmalıdır' })
-  organizationId: number;
+  organizationId?: number;
+  
+  @ApiProperty({ description: 'Organizasyon Adı', example: 'ABC Şirketi', required: false })
+  @IsOptional()
+  @IsString({ message: 'Organizasyon adı metin olmalıdır' })
+  @MaxLength(100, { message: 'Organizasyon adı en fazla 100 karakter olabilir' })
+  organizationName?: string;
 
   @ApiProperty({ description: 'E-posta adresi', example: 'kullanici@ornek.com' })
   @IsNotEmpty({ message: 'E-posta adresi zorunludur' })

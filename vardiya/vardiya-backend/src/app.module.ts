@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
@@ -6,6 +6,12 @@ import { AppService } from './app.service';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { ShiftsModule } from './shifts/shifts.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { LoggerModule } from './logger/logger.module';
+import { LoggerMiddleware } from './logger/logger.middleware';
+import { SecurityModule } from './common/security.module';
+import { RateLimiterMiddleware } from './common/middleware/rate-limiter.middleware';
 
 @Module({
   imports: [
@@ -31,8 +37,19 @@ import { AuthModule } from './auth/auth.module';
     OrganizationsModule,
     UsersModule,
     AuthModule,
+    ShiftsModule,
+    NotificationsModule,
+    LoggerModule,
+    SecurityModule,
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Tüm rotalar için loglama ve güvenlik middleware'lerini uygula
+    consumer
+      .apply(LoggerMiddleware, RateLimiterMiddleware)
+      .forRoutes('*');
+  }
+}

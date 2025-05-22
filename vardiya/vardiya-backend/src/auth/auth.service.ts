@@ -54,21 +54,42 @@ export class AuthService {
    * @returns Token ve kullanıcı bilgileri
    */
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    // Organizasyon var mı kontrol et
-    try {
-      await this.organizationsService.findOne(registerDto.organizationId);
-    } catch (error) {
-      throw new BadRequestException('Geçersiz organizasyon ID');
+    let organizationId: number;
+    
+    // Yeni organizasyon mu, mevcut organizasyon mu kontrol et
+    if (registerDto.organizationName) {
+      // Yeni organizasyon oluştur
+      const newOrg = await this.organizationsService.create({
+        name: registerDto.organizationName,
+        email: `info@${registerDto.organizationName.toLowerCase().replace(/\s+/g, '')}.com` // Organizasyon adından geçici e-posta oluştur
+      });
+      organizationId = newOrg.id;
+    } else if (registerDto.organizationId) {
+      // Mevcut organizasyon var mı kontrol et
+      try {
+        await this.organizationsService.findOne(registerDto.organizationId);
+        organizationId = registerDto.organizationId;
+      } catch (error) {
+        throw new BadRequestException('Geçersiz organizasyon ID');
+      }
+    } else {
+      throw new BadRequestException('Organizasyon bilgisi gereklidir (ID veya isim)');
     }
+    
+    // organizationId'yi DTO'ya ekle
+    const userCreateDto = {
+      ...registerDto,
+      organizationId // Her durumda doğru organizationId kullan
+    };
 
     // Kullanıcıyı oluştur
-    const newUser = await this.usersService.create(registerDto);
+    const newUser = await this.usersService.create(userCreateDto);
 
     // JWT token oluştur
     const accessToken = this.generateToken(
       newUser.id, 
       newUser.email, 
-      registerDto.organizationId, 
+      organizationId, 
       registerDto.role || 'EMPLOYEE'
     );
 
