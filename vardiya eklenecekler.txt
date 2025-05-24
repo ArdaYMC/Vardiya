@@ -1,0 +1,3 @@
+profile basınca login'e atıyor
+dark-light mode çalışmıyor
+şifremi unuttum ekranı
