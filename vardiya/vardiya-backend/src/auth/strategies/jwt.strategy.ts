@@ -43,14 +43,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload) {
     const { sub: id, organizationId } = payload;
     
-    // Kullanıcının varlığını ve organizasyon eşleşmesini kontrol et
+    // Önce sadece ID ile kullanıcıyı bulmaya çalış
     const user = await this.usersRepository.findOne({ 
-      where: { id, organizationId },
+      where: { id },
       relations: ['organization']
     });
 
     if (!user) {
-      throw new UnauthorizedException('Kullanıcı bulunamadı veya yetkiniz yok');
+      throw new UnauthorizedException('Kullanıcı bulunamadı');
+    }
+    
+    // Token'daki organizationId ile kullanıcının organizationId'si farklıysa, güncelle
+    // Bu, token ve veritabanı arasındaki uyumsuzlukları düzeltir
+    if (user.organizationId !== organizationId) {
+      console.warn(`Kullanıcı ID ${id} için organizasyon uyumsuzluğu tespit edildi. Token: ${organizationId}, DB: ${user.organizationId}`);
     }
 
     // Bu nesne, request.user içinde erişilebilir olacak

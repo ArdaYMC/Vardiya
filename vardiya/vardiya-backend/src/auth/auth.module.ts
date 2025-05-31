@@ -11,12 +11,14 @@ import { RolesGuard } from './guards/roles.guard';
 import { User } from '../users/entities/user.entity';
 import { UsersModule } from '../users/users.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
-    // Kullanıcı ve organizasyon modüllerini içe aktar
+    // Kullanıcı, organizasyon ve bildirim modüllerini içe aktar
     UsersModule,
     OrganizationsModule,
+    NotificationsModule,
     
     // User entity'sini TypeORM için kaydet (JwtStrategy için gerekli)
     TypeOrmModule.forFeature([User]),
@@ -31,7 +33,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET', 'varsayilan_gizli_anahtar'),
         signOptions: { 
-          expiresIn: configService.get('JWT_EXPIRES_IN', '24h') 
+          expiresIn: configService.get('JWT_EXPIRES_IN', '30d') // Token süresini 30 güne çıkardık
         },
       }),
     }),

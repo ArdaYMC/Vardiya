@@ -210,4 +210,51 @@ export class UsersService {
     await this.usersRepository.remove(user);
     return { message: 'Kullanıcı başarıyla silindi' };
   }
+
+  /**
+   * Şifre sıfırlama token'ını kaydeder
+   * @param userId Kullanıcı ID
+   * @param resetToken Token
+   * @param expiresAt Son geçerlilik tarihi
+   */
+  async savePasswordResetToken(userId: number, resetToken: string, expiresAt: Date): Promise<void> {
+    await this.usersRepository.update(userId, {
+      resetToken,
+      resetTokenExpires: expiresAt
+    });
+  }
+
+  /**
+   * Token ile kullanıcı bulur
+   * @param token Şifre sıfırlama token'ı
+   * @returns Bulunan kullanıcı veya null
+   */
+  async findUserByResetToken(token: string): Promise<User | null> {
+    return this.usersRepository.findOne({
+      where: { resetToken: token }
+    });
+  }
+
+  /**
+   * Kullanıcı şifresini günceller (şifre sıfırlama için)
+   * @param userId Kullanıcı ID
+   * @param newPassword Yeni şifre
+   */
+  async updatePassword(userId: number, newPassword: string): Promise<void> {
+    const hashedPassword = await this.hashPassword(newPassword);
+    await this.usersRepository.update(userId, {
+      password: hashedPassword
+    });
+  }
+
+  /**
+   * Şifre sıfırlama token bilgilerini temizler
+   * @param userId Kullanıcı ID
+   */
+  async clearPasswordResetToken(userId: number): Promise<void> {
+    await this.usersRepository.update(userId, {
+      resetToken: '',
+      resetTokenExpires: undefined
+    });
+  }
 }

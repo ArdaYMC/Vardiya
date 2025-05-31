@@ -44,4 +44,12 @@ export class User {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
+
+  @Column({ name: 'reset_token', nullable: true, length: 100 })
+  @Exclude()
+  resetToken: string;
+
+  @Column({ name: 'reset_token_expires', type: 'timestamp with time zone', nullable: true })
+  @Exclude()
+  resetTokenExpires: Date;
 }

@@ -17,6 +17,7 @@ export enum NotificationType {
   SHIFT_SWAP_ACCEPTED = 'shift_swap_accepted',
   SHIFT_SWAP_REJECTED = 'shift_swap_rejected',
   SYSTEM = 'system',
+  PASSWORD_RESET = 'password_reset',
 }
 
 export enum NotificationChannel {

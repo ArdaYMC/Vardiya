@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import { Notification, NotificationChannel, NotificationType } from './entities/notification.entity';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { NotificationResponseDto } from './dto/notification-response.dto';
 import { ConfigService } from '@nestjs/config';
+import { EmailService } from './email/email.service';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class NotificationsService {
@@ -12,6 +14,8 @@ export class NotificationsService {
     @InjectRepository(Notification)
     private notificationsRepository: Repository<Notification>,
     private configService: ConfigService,
+    private emailService: EmailService,
+    private usersService: UsersService,
   ) {}
 
   /**
@@ -246,19 +250,44 @@ export class NotificationsService {
     return this.createMany(notificationDtos);
   }
 
+  private readonly logger = new Logger(NotificationsService.name);
+
   /**
-   * E-posta bildirimi gönderme (placeholder - gerçek implementasyon eklenecek)
+   * E-posta bildirimi gönderme
    * @param notification Bildirim
    */
   private async sendEmailNotification(notification: Notification): Promise<void> {
-    // E-posta servisini entegre et (örn. Nodemailer, SendGrid, vb.)
-    // Bu örnekte simüle ediliyor
-    console.log(`[EMAIL] To: User ${notification.recipientId}, Subject: ${notification.title}`);
-    console.log(`[EMAIL] Content: ${notification.content}`);
-    
-    // Gerçek implementasyon için:
-    // const emailService = new EmailService(this.configService);
-    // await emailService.sendEmail(notification.recipientId, notification.title, notification.content);
+    try {
+      // Kullanıcının email adresini al
+      const user = await this.usersService.findOne(notification.recipientId);
+      
+      if (!user || !user.email) {
+        this.logger.warn(`Kullanıcı bulunamadı veya email adresi yok: ${notification.recipientId}`);
+        return;
+      }
+      
+      // HTML formatında e-posta içeriği
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px;">${notification.title}</h2>
+          <div style="color: #555; line-height: 1.5;">${notification.content}</div>
+          <p style="margin-top: 30px; padding-top: 10px; border-top: 1px solid #eee; color: #777; font-size: 12px;">
+            Bu e-posta, Vardiya Sisteminden otomatik olarak gönderilmiştir.
+          </p>
+        </div>
+      `;
+      
+      // E-posta gönderimi
+      await this.emailService.sendEmail(
+        user.email,
+        notification.title,
+        htmlContent
+      );
+      
+      this.logger.log(`Email gönderildi: ${user.email}, Konu: ${notification.title}`);
+    } catch (error) {
+      this.logger.error(`E-posta gönderimi başarısız oldu:`, error?.stack || error?.message || error);
+    }
   }
 
   /**

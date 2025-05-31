@@ -3,6 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { PasswordResetRequestDto } from './dto/password-reset-request.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -61,5 +63,35 @@ export class AuthController {
   getProfile(@Request() req) {
     // JWT stratejisinden dönen kullanıcı bilgileri
     return req.user;
+  }
+
+  @Post('password-reset-request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Şifre sıfırlama isteği oluşturma' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Şifre sıfırlama talimatları e-posta ile gönderildi',
+  })
+  async requestPasswordReset(@Body() passwordResetRequestDto: PasswordResetRequestDto) {
+    return this.authService.requestPasswordReset(passwordResetRequestDto);
+  }
+
+  @Post('password-reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Şifre sıfırlama işlemi' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Şifre başarıyla sıfırlandı',
+  })
+  @ApiResponse({
+    status: HttpStatus.NOT_FOUND,
+    description: 'Geçersiz veya süresi dolmuş token',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Şifre sıfırlama bağlantısının süresi dolmuş',
+  })
+  async resetPassword(@Body() passwordResetDto: PasswordResetDto) {
+    return this.authService.resetPassword(passwordResetDto);
   }
 }
