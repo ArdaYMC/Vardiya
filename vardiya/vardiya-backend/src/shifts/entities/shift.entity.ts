@@ -74,6 +74,13 @@ export class Shift {
   @ManyToOne(() => User, user => user.id)
   @JoinColumn({ name: 'created_by' })
   creator: User;
+  
+  @Column({ nullable: true, name: 'assigned_to' })
+  assignedTo: number | null;
+  
+  @ManyToOne(() => User, user => user.id)
+  @JoinColumn({ name: 'assigned_to' })
+  assignedUser: User;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

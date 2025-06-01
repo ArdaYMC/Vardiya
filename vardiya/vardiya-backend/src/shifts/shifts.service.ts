@@ -11,6 +11,12 @@ import { User } from '../users/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/entities/notification.entity';
 
+// Bildirim tipleri için yardımcı değişkenler
+const NOTIFICATION_TYPES = {
+  SHIFT_COMPLETED: 'shift_completed',
+  SHIFT_CANCELLED: 'shift_cancelled'
+} as const;
+
 @Injectable()
 export class ShiftsService {
   constructor(
@@ -112,6 +118,17 @@ export class ShiftsService {
       where: whereClause,
       relations: ['creator', 'organization']
     });
+    
+    // Atanan çalışanı bulup shift nesnesine ekleyelim
+    if (shift && shift.assignedTo) {
+      const assignedUser = await this.usersRepository.findOne({
+        where: { id: shift.assignedTo }
+      });
+      if (assignedUser) {
+        // DTO'ya aktarılabilmesi için özellik olarak ekleyelim
+        (shift as any).assignedUser = assignedUser;
+      }
+    }
 
     if (!shift) {
       throw new NotFoundException(`ID: ${id} olan vardiya bulunamadı`);
@@ -138,77 +155,184 @@ export class ShiftsService {
       whereClause.organizationId = organizationId;
     }
     
-    const shift = await this.shiftsRepository.findOne({ where: whereClause });
+    const shift = await this.shiftsRepository.findOne({ 
+      where: whereClause,
+      relations: ['organization', 'creator']
+    });
+    
+    // Atanan çalışanı bulup shift nesnesine ekleyelim
+    if (shift && shift.assignedTo) {
+      const assignedUser = await this.usersRepository.findOne({
+        where: { id: shift.assignedTo }
+      });
+      if (assignedUser) {
+        // DTO'ya aktarılabilmesi için özellik olarak ekleyelim
+        (shift as any).assignedUser = assignedUser;
+      }
+    }
     
     if (!shift) {
       throw new NotFoundException(`ID: ${id} olan vardiya bulunamadı`);
     }
     
     // Tarih güncellemesi varsa kontrol et
-    if (updateShiftDto.startTime || updateShiftDto.endTime) {
-      const startTime = updateShiftDto.startTime ? new Date(updateShiftDto.startTime) : shift.startTime;
-      const endTime = updateShiftDto.endTime ? new Date(updateShiftDto.endTime) : shift.endTime;
+    let startTime = shift.startTime;
+    let endTime = shift.endTime;
+    
+    if (updateShiftDto.startTime) {
+      startTime = new Date(updateShiftDto.startTime);
+    }
+    
+    if (updateShiftDto.endTime) {
+      endTime = new Date(updateShiftDto.endTime);
+    }
+    
+    if (startTime >= endTime) {
+      throw new BadRequestException('Başlangıç zamanı bitiş zamanından önce olmalıdır');
+    }
+    
+    // assignedTo alanı varsa çalışanın varlığını kontrol et
+    if (updateShiftDto['assignedTo'] !== undefined) {
+      const assignedToId = updateShiftDto['assignedTo'];
       
-      if (startTime >= endTime) {
-        throw new BadRequestException('Başlangıç zamanı bitiş zamanından önce olmalıdır');
+      // Eğer atama siliniyorsa (çalışan ataması kaldırılıyorsa)
+      if (assignedToId === null) {
+        shift.assignedTo = null;
+      } else if (assignedToId) {
+        // Çalışan var mı kontrol et
+        const employee = await this.usersRepository.findOne({ 
+          where: { 
+            id: assignedToId,
+            organizationId: shift.organizationId
+          }
+        });
+        
+        if (!employee) {
+          throw new NotFoundException(`ID: ${assignedToId} olan çalışan bulunamadı veya bu organizasyona ait değil`);
+        }
+        
+        // Çakışan vardiya var mı kontrol et
+        const conflictingAssignments = await this.findConflictingAssignments(
+          assignedToId,
+          startTime,
+          endTime
+        );
+        
+        // Sadece başka vardiyalardaki çakışmaları kontrol et
+        const otherConflictingAssignments = conflictingAssignments.filter(
+          assignment => assignment.shiftId !== id
+        );
+        
+        if (otherConflictingAssignments.length > 0) {
+          throw new ConflictException(
+            `Çalışanın bu zaman diliminde çakışan vardiya ataması bulunmaktadır`
+          );
+        }
+        
+        // Atama işlemi
+        shift.assignedTo = assignedToId;
+        
+        // Vardiya atama tablosunu güncelle (varsa) veya yeni oluştur
+        const existingAssignment = await this.shiftAssignmentsRepository.findOne({
+          where: { shiftId: id }
+        });
+        
+        if (existingAssignment) {
+          // Var olan atamayı güncelle
+          existingAssignment.userId = assignedToId;
+          existingAssignment.status = AssignmentStatus.ASSIGNED;
+          await this.shiftAssignmentsRepository.save(existingAssignment);
+        } else {
+          // Yeni atama oluştur
+          const assignment = this.shiftAssignmentsRepository.create({
+            shiftId: id,
+            userId: assignedToId,
+            status: AssignmentStatus.ASSIGNED,
+            assignedBy: updateShiftDto['assignedBy'] || 0
+          });
+          
+          await this.shiftAssignmentsRepository.save(assignment);
+        }
       }
     }
-
-    // Durumu CANCELLED olarak güncelliyorsa, ilgili atamaları da güncelle
-    if (updateShiftDto.status === ShiftStatus.CANCELLED && shift.status !== ShiftStatus.CANCELLED) {
-      // İlgili atamaları da iptal et
-      await this.shiftAssignmentsRepository.update(
-        { shiftId: id, status: AssignmentStatus.ASSIGNED },
-        { status: AssignmentStatus.REJECTED }
-      );
+    
+    // Vardiya durumu değişimini işle
+    if (updateShiftDto.status && updateShiftDto.status !== shift.status) {
+      // Durum geçişi geçerli mi kontrol et
+      if (!this.isValidStatusTransition(shift.status, updateShiftDto.status)) {
+        throw new BadRequestException(`Geçersiz durum geçişi: ${shift.status} -> ${updateShiftDto.status}`);
+      }
+      
+      // Tamamlanma veya iptal durumu için bildirimler
+      if (updateShiftDto.status === ShiftStatus.COMPLETED) {
+        // Tüm atanmış çalışanlara bildirim gönder
+        const assignments = await this.shiftAssignmentsRepository.find({
+          where: { shiftId: id }
+        });
+        
+        for (const assignment of assignments) {
+          // Assignment durumunu güncelle
+          assignment.status = AssignmentStatus.COMPLETED;
+          await this.shiftAssignmentsRepository.save(assignment);
+          
+          // Bildirim gönder
+          await this.notificationsService.create({
+            type: NotificationType.SHIFT_UPDATED,
+            title: 'Vardiya Tamamlandı',
+            content: `${shift.title} vardiyası tamamlandı.`,
+            recipientId: assignment.userId,
+            organizationId: shift.organizationId,
+            metadata: { shiftId: shift.id }
+          });
+        }
+      }
+      
+      if (updateShiftDto.status === ShiftStatus.CANCELLED) {
+        // Tüm atanmış çalışanların assignment durumunu REJECTED yap
+        const assignments = await this.shiftAssignmentsRepository.find({
+          where: { shiftId: id }
+        });
+        
+        for (const assignment of assignments) {
+          assignment.status = AssignmentStatus.REJECTED;
+          await this.shiftAssignmentsRepository.save(assignment);
+          
+          // Bildirim gönder
+          await this.notificationsService.create({
+            type: NotificationType.SHIFT_UPDATED,
+            title: 'Vardiya İptal Edildi',
+            content: `${shift.title} vardiyası iptal edildi.`,
+            recipientId: assignment.userId,
+            organizationId: shift.organizationId,
+            metadata: { shiftId: shift.id }
+          });
+        }
+      }
     }
     
-    // Değişiklikleri tespit et ve bildirim içeriği oluştur
-    let changes: string[] = [];
-    if (updateShiftDto.startTime && new Date(updateShiftDto.startTime).getTime() !== shift.startTime.getTime()) {
-      changes.push(`Başlangıç zamanı: ${shift.startTime.toLocaleString()} -> ${new Date(updateShiftDto.startTime).toLocaleString()}`);
-    }
-    if (updateShiftDto.endTime && new Date(updateShiftDto.endTime).getTime() !== shift.endTime.getTime()) {
-      changes.push(`Bitiş zamanı: ${shift.endTime.toLocaleString()} -> ${new Date(updateShiftDto.endTime).toLocaleString()}`);
-    }
-    if (updateShiftDto.title && updateShiftDto.title !== shift.title) {
-      changes.push(`Başlık: ${shift.title} -> ${updateShiftDto.title}`);
-    }
-    if (updateShiftDto.location && updateShiftDto.location !== shift.location) {
-      changes.push(`Lokasyon: ${shift.location || 'Belirtilmemiş'} -> ${updateShiftDto.location}`);
-    }
-    if (updateShiftDto.status && updateShiftDto.status !== shift.status) {
-      changes.push(`Durum: ${shift.status} -> ${updateShiftDto.status}`);
-    }
-
-    // Vardiyayı güncelle
-    await this.shiftsRepository.update(id, {
+    // Güncelleme için birleştir
+    Object.assign(shift, {
       ...updateShiftDto,
-      startTime: updateShiftDto.startTime ? new Date(updateShiftDto.startTime) : undefined,
-      endTime: updateShiftDto.endTime ? new Date(updateShiftDto.endTime) : undefined
+      startTime: startTime,
+      endTime: endTime
     });
     
-    // Güncellenmiş veriyi getir
-    const updatedShift = await this.shiftsRepository.findOne({ where: { id } });
+    const updatedShift = await this.shiftsRepository.save(shift);
     
-    if (!updatedShift) {
-      throw new NotFoundException(`Güncellenmiş vardiya bulunamadı`);
-    }
+    // Bu vardiyaya atanmış tüm çalışanları bul
+    const assignments = await this.shiftAssignmentsRepository.find({
+      where: { shiftId: id, status: AssignmentStatus.ASSIGNED },
+      select: ['userId']
+    });
     
-    // Atanmış çalışanlara bildirim gönder
-    if (changes.length > 0) {
-      const changesText = changes.join(', ');
+    // Değişikliklerin özetini oluştur
+    const changesText = 'Vardiya bilgileri güncellendi';
+    
+    if (assignments.length > 0) {
+      const userIds = assignments.map(a => a.userId);
       
-      // Bu vardiyaya atanmış tüm çalışanları bul
-      const assignments = await this.shiftAssignmentsRepository.find({
-        where: { shiftId: id, status: AssignmentStatus.ASSIGNED },
-        select: ['userId']
-      });
-      
-      if (assignments.length > 0) {
-        const userIds = assignments.map(a => a.userId);
-        
-        // Toplu bildirim gönder
+      // Toplu bildirim gönder
+      if (this.notificationsService.createShiftUpdateNotifications) {
         await this.notificationsService.createShiftUpdateNotifications(
           id,
           updatedShift.title,
@@ -220,6 +344,41 @@ export class ShiftsService {
     }
     
     return new ShiftResponseDto(updatedShift);
+  }
+  
+  /**
+   * Vardiya durumu geçişinin geçerli olup olmadığını kontrol eder
+   * @param currentStatus Mevcut durum
+   * @param newStatus Yeni durum
+   * @returns Geçiş geçerli mi
+   */
+  private isValidStatusTransition(currentStatus: ShiftStatus, newStatus: ShiftStatus): boolean {
+    // Aynı duruma geçiş her zaman geçerlidir
+    if (currentStatus === newStatus) {
+      return true;
+    }
+    
+    // Durum geçiş kuralları
+    switch (currentStatus) {
+      case ShiftStatus.PLANNED:
+        // Planlanmış durumdan her duruma geçilebilir
+        return true;
+      
+      case ShiftStatus.CONFIRMED:
+        // Onaylanmış durumdan yalnızca tamamlandı veya iptal edildi durumlarına geçilebilir
+        return [
+          ShiftStatus.COMPLETED,
+          ShiftStatus.CANCELLED
+        ].includes(newStatus);
+      
+      case ShiftStatus.COMPLETED:
+      case ShiftStatus.CANCELLED:
+        // Tamamlanmış veya iptal edilmiş durumlardan başka duruma geçilemez
+        return false;
+      
+      default:
+        return false;
+    }
   }
 
   /**

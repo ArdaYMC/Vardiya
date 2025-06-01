@@ -10,13 +10,14 @@ import {
   Query, 
   Request,
   HttpCode,
-  HttpStatus 
+  HttpStatus,
+  Put
 } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { CreateShiftAssignmentDto } from './dto/create-shift-assignment.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/guards/roles.guard';
@@ -78,16 +79,24 @@ export class ShiftsController {
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.MANAGER)
-  @ApiOperation({ summary: 'Vardiya bilgilerini güncelle' })
+  @ApiOperation({ summary: 'Vardiya bilgilerini kısmi güncelle' })
   @ApiParam({ name: 'id', description: 'Vardiya ID', example: 1 })
+  @ApiBody({ type: UpdateShiftDto })
   @ApiResponse({ status: 200, description: 'Vardiya başarıyla güncellendi', type: ShiftResponseDto })
-  @ApiResponse({ status: 400, description: 'Geçersiz veri' })
   @ApiResponse({ status: 404, description: 'Vardiya bulunamadı' })
-  update(
-    @Param('id') id: string,
-    @Body() updateShiftDto: UpdateShiftDto,
-    @Request() req
-  ): Promise<ShiftResponseDto> {
+  update(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto, @Request() req): Promise<ShiftResponseDto> {
+    return this.shiftsService.updateShift(+id, updateShiftDto, req.user.organizationId);
+  }
+  
+  @Put(':id')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Vardiya bilgilerini tam güncelle (çalışan atama dahil)' })
+  @ApiParam({ name: 'id', description: 'Vardiya ID', example: 1 })
+  @ApiBody({ type: UpdateShiftDto })
+  @ApiResponse({ status: 200, description: 'Vardiya başarıyla güncellendi', type: ShiftResponseDto })
+  @ApiResponse({ status: 404, description: 'Vardiya veya çalışan bulunamadı' })
+  @ApiResponse({ status: 409, description: 'Çakışan vardiya ataması bulunmakta' })
+  updateFull(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto, @Request() req): Promise<ShiftResponseDto> {
     return this.shiftsService.updateShift(+id, updateShiftDto, req.user.organizationId);
   }
 
@@ -98,9 +107,30 @@ export class ShiftsController {
   @ApiParam({ name: 'id', description: 'Vardiya ID', example: 1 })
   @ApiResponse({ status: 200, description: 'Vardiya başarıyla silindi' })
   @ApiResponse({ status: 404, description: 'Vardiya bulunamadı' })
-  @ApiResponse({ status: 409, description: 'Vardiyaya atanmış aktif çalışanlar var' })
   remove(@Param('id') id: string, @Request() req): Promise<{ message: string }> {
     return this.shiftsService.removeShift(+id, req.user.organizationId);
+  }
+  
+  @Patch(':id/assign')
+  @Roles(UserRole.ADMIN, UserRole.MANAGER)
+  @ApiOperation({ summary: 'Vardiyaya çalışan ata (basitleştirilmiş)' })
+  @ApiParam({ name: 'id', description: 'Vardiya ID', example: 1 })
+  @ApiResponse({ status: 200, description: 'Vardiya ataması başarıyla yapıldı' })
+  @ApiResponse({ status: 400, description: 'Geçersiz veri' })
+  @ApiResponse({ status: 404, description: 'Vardiya veya kullanıcı bulunamadı' })
+  @ApiResponse({ status: 409, description: 'Çakışan vardiya ataması bulunmakta' })
+  assignEmployeeSimple(
+    @Param('id') id: string,
+    @Body() assignData: { employeeId: number },
+    @Request() req
+  ): Promise<ShiftAssignment> {
+    // Frontend'den gelen basit employeeId'yi CreateShiftAssignmentDto formatına dönüştür
+    const createShiftAssignmentDto = new CreateShiftAssignmentDto();
+    createShiftAssignmentDto.shiftId = +id;
+    createShiftAssignmentDto.userId = assignData.employeeId;
+    createShiftAssignmentDto.assignedBy = req.user.id;
+    
+    return this.shiftsService.assignShift(createShiftAssignmentDto);
   }
 
   @Post(':id/assignments')

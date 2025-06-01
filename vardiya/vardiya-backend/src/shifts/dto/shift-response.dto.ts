@@ -41,6 +41,9 @@ export class ShiftResponseDto {
 
   @ApiProperty({ description: 'Vardiyayı oluşturan kişi ID', example: 1 })
   createdBy: number;
+  
+  @ApiProperty({ description: 'Vardiyaya atanan çalışan ID', example: 3, required: false, nullable: true })
+  assignedTo: number;
 
   @ApiProperty({ description: 'Vardiya süresi (saat)', example: 8 })
   @Expose()
@@ -67,6 +70,9 @@ export class ShiftResponseDto {
 
   @Exclude()
   creator: any;
+  
+  @ApiProperty({ description: 'Atanan çalışan bilgileri', required: false })
+  assignedUser: any;
 
   constructor(partial: Partial<Shift>) {
     Object.assign(this, partial);
