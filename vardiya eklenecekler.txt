@@ -1,3 +1,2 @@
-profile basınca login'e atıyor
-dark-light mode çalışmıyor
-şifremi unuttum ekranı
+profildeki ayarlar kısmı ve profil kısmı
+organizasyon kısmı
